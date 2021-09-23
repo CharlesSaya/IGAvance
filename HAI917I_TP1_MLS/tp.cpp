@@ -30,14 +30,14 @@
 #include "src/Camera.h"
 #include "src/jmkdtree.h"
 
-
-
-
 std::vector< Vec3 > positions;
 std::vector< Vec3 > normals;
 
 std::vector< Vec3 > positions2;
-std::vector< Vec3 > normals2;
+
+std::vector< Vec3 > positions3;
+std::vector< Vec3 > normals3;
+
 
 std::vector< Vec3 > projectedPositions;
 std::vector< Vec3 > projectedNormals;
@@ -197,7 +197,7 @@ void init () {
     glEnable (GL_CULL_FACE);
     glDepthFunc (GL_LESS);
     glEnable (GL_DEPTH_TEST);
-    glClearColor (0.2f, 0.2f, 0.3f, 1.0f);
+    glClearColor (0.f, 0.f, 0.f, 1.0f);
     glEnable(GL_COLOR_MATERIAL);
 }
 
@@ -223,7 +223,7 @@ void drawPointSet( std::vector< Vec3 > const & i_positions , std::vector< Vec3 >
     glBegin(GL_POINTS);
     for(unsigned int pIt = 0 ; pIt < i_positions.size() ; ++pIt) {
         glNormal3f( i_normals[pIt][0] , i_normals[pIt][1] , i_normals[pIt][2] );
-        glVertex3f( i_positions[pIt][0] , i_positions[pIt][1] , i_positions[pIt][2] );
+        glVertex3f( i_positions[pIt][0], i_positions[pIt][1] , i_positions[pIt][2] );
     }
     glEnd();
 }
@@ -231,23 +231,16 @@ void drawPointSet( std::vector< Vec3 > const & i_positions , std::vector< Vec3 >
 void draw () {
     glPointSize(2); // for example...
 
-    // glColor3f(0.8,0.8,1);
-    // drawPointSet(positions , normals);
+    glColor3f(0.8,0.8,1);
+    drawPointSet(positions , normals);
 
-    // glColor3f(1,0.5,0.5);
-    // drawPointSet(positions2 , normals2);
+    // glColor3f(1.0,.0,.0);
+    // drawPointSet(positions3 , normals3);
 
-    glColor3f(0.0,0.0,1.0);
+    glColor3f(0.5,1.0,0.0);
     drawPointSet(projectedPositions , projectedNormals);
 
 }
-
-
-
-
-
-
-
 
 void display () {
     glLoadIdentity ();
@@ -333,67 +326,160 @@ void motion (int x, int y) {
     }
 }
 
-
 void reshape(int w, int h) {
     camera.resize (w, h);
 }
 
-void project( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal, Vec3 planPoint, Vec3 planNormal ){
+void project( Vec3 inputPoint, Vec3 & outputPoint, Vec3 planPoint, Vec3 planNormal ){
 
     Vec3 pn = inputPoint - planPoint;
-
-    outputPoint = inputPoint - ( Vec3::dot(pn,planNormal) * planNormal );
-    outputNormal = planNormal;
+    
+    outputPoint = inputPoint - ( Vec3::dot(pn, planNormal)/planNormal.length() * planNormal );
 }
 
-void HPSS( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal, std::vector<Vec3> const positions, std::vector<Vec3> const normals, BasicANNkdTree const & kdTree, int kernelType, unsigned int nbIterations = 10, unsigned int knn = 20 ){
+
+void HPSS( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal, 
+           std::vector<Vec3> const positions, std::vector<Vec3> const normals, 
+           BasicANNkdTree const & kdTree, int kernelType, unsigned int nbIterations = 50, unsigned int knn = 100 ){
     
+
     ANNidxArray id_nearest_neighbors = new ANNidx[ knn ];
     ANNdistArray square_distances_to_neighbors = new ANNdist[ knn ];
 
-    float h = 1.0;
-    Vec3 avgPoint = Vec3( 0., 0., 0. );
-    Vec3 avgNormal = Vec3( 0., 0., 0. );
-    outputPoint = inputPoint;
-
+    // iterate to project input point on centroid plan
     while ( nbIterations > 0 ){
         float weitghSum = 0.0;
+        float h = 1.0;
+    
+        Vec3 avgPoint = Vec3( 0., 0., 0. );
+        Vec3 avgNormal = Vec3( 0., 0., 0. );
+        
+        // get k-nearest and iterate on them to calculate the centroid
+        kdTree.knearest( inputPoint, knn, id_nearest_neighbors, square_distances_to_neighbors );
+        
+        for( unsigned int i = 0; i < knn; i++ ){
 
-        avgPoint = Vec3( 0., 0., 0. );
-        avgNormal = Vec3( 0., 0., 0. );
-
-        kdTree.knearest( outputPoint, knn, id_nearest_neighbors, square_distances_to_neighbors );
-        for( unsigned int i =0; i < knn; i++){
-            Vec3 projectedPoint, projectedNormal;
+            Vec3 projectedPoint;
 
             int index = id_nearest_neighbors[i];
-            Vec3 nearestPos = positions[index];
-            Vec3 nearestNormal = normals[index];
+            // project input point on each neighbor's plan
+            project( inputPoint, projectedPoint, positions[index], normals[index] );
+            
+            Vec3 diff = inputPoint - positions[index] ;
 
-            Vec3 dir = outputPoint - nearestPos ;
+            float weight;
+            if ( kernelType == 0 )
+                weight = exp( - (diff.length() * diff.length() ) / ( h * h ) ) ;
+            else if( kernelType == 1 )
+                weight = 1.0;
+            else
+                weight = 1.0;
 
-            float weight = exp( - ( dir.length() * dir.length()  ) / ( h * h ) ) ;
-
-            project( outputPoint, projectedPoint, projectedNormal, nearestPos, nearestNormal );
-
-
-            avgPoint += weight * projectedPoint;
-            avgNormal += weight * nearestNormal;
+            avgPoint  += weight * projectedPoint;
+            avgNormal += weight * normals[index];
             weitghSum += weight;
         }
-        outputPoint = avgPoint / (  weitghSum );
-        outputNormal = avgNormal / ( weitghSum );
+
+        outputPoint  = avgPoint / weitghSum ;
+        outputNormal = avgNormal / weitghSum;
+        Vec3 temp = Vec3( inputPoint );
+
+        // project input point on centroid's plan
+        project( temp, inputPoint, outputPoint, outputNormal );
+
         nbIterations--;
+
     }
-
-
 
     delete [] id_nearest_neighbors;
     delete [] square_distances_to_neighbors;
 
 }
+void APSS( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal, 
+           std::vector<Vec3> const positions, std::vector<Vec3> const normals, 
+           BasicANNkdTree const & kdTree, int kernelType, unsigned int nbIterations = 50, unsigned int knn = 100 ){
 
+   
+    ANNidxArray id_nearest_neighbors = new ANNidx[ knn ];
+    ANNdistArray square_distances_to_neighbors = new ANNdist[ knn ];
+    float h = 1.0;
+    while ( nbIterations > 0 ){
 
+        float u4Sum1 = 0.0, u4Sum4= 0.0;
+        
+        Vec3 u4Sum2 = Vec3(0.0, 0.0, 0.0), 
+             u4Sum3 = Vec3(0.0, 0.0, 0.0), 
+             u4Sum5 = Vec3(0.0, 0.0, 0.0), 
+             u4Sum6 = Vec3(0.0, 0.0, 0.0);
+
+        Vec3 u123Sum1 = Vec3(0.0, 0.0, 0.0), 
+             u123Sum2 = Vec3(0.0, 0.0, 0.0);
+
+        Vec3 u0Sum1 = Vec3(0.0, 0.0, 0.0);
+        float u0Sum2 = 0.0;
+
+        kdTree.knearest( inputPoint, knn, id_nearest_neighbors, square_distances_to_neighbors );
+        
+        for( unsigned int i = 0; i < knn; i++ ){
+            int index = id_nearest_neighbors[i] ;
+            Vec3 diff = inputPoint - positions[index] ;
+
+            float weight;
+            if ( kernelType == 0 )
+                weight = exp( - (diff.length() * diff.length() ) / ( h * h ) ) ;
+            else if( kernelType == 1 )
+                weight = 1.0;
+            else
+                weight = 1.0;
+
+            float normalizedWeight = weight / (float)knn;
+
+            u4Sum1 +=  weight *  Vec3::dot( positions[index], (normals[index] ) );
+            u4Sum2 +=  normalizedWeight * positions[index];
+            u4Sum3 +=  weight * normals[index];
+            u4Sum4 +=  weight *  Vec3::dot( positions[index], positions[index]);
+            u4Sum5 +=  normalizedWeight * positions[index];
+            u4Sum6 +=  weight * positions[index];
+
+            u123Sum1 += normalizedWeight * normals[index];
+            u123Sum2 += normalizedWeight * positions[index];
+
+            u0Sum1 += normalizedWeight * positions[index];
+            u0Sum2 += normalizedWeight * Vec3::dot( positions[index], positions[index]);
+        }
+
+        //  calcul des coefficients
+        float u4 = 0.5 * ( u4Sum1 - ( Vec3::dot( u4Sum2, u4Sum3 ) ) ) / ( u4Sum4 - Vec3::dot( u4Sum5, u4Sum6 ) );
+        Vec3 u123 = u123Sum1 - ( 2.0 * u4 *  u123Sum2 );
+        float u0 = Vec3::dot( -1.0 * u123, u0Sum1 ) - ( u4 * u0Sum2 );
+        Vec3 normal; 
+
+        //  on projete sur le plan
+        if (u4 == 0){
+            normal = Vec3( u123 );
+            normal.normalize();
+
+            // project( temp, inputPoint, normal,normal );
+
+        //  On calcule le centre du cercle et son rayon et on calcule la projection de l'input point
+        }else{
+            Vec3 c = ( -1.0 * u123 ) / ( 2.0 * u4 );
+            float r = sqrt( c.length() * c.length() - u0/u4 ) ;
+
+            normal = u123 + 2.0*u4*inputPoint;
+            normal.normalize();
+            Vec3 pc = Vec3( inputPoint - c );
+            pc.normalize();
+            inputPoint = c + ( r * pc );
+
+        }
+
+        outputNormal = normal;
+       
+        nbIterations--;
+    }
+    outputPoint = inputPoint;
+}
 int main (int argc, char ** argv) {
     if (argc > 2) {
         exit (EXIT_FAILURE);
@@ -421,41 +507,42 @@ int main (int argc, char ** argv) {
         kdtree.build(positions);
 
         // Create a second pointset that is artificial, and project it on pointset1 using MLS techniques:
-        positions2.resize( 20000 );
-        normals2.resize(positions2.size());
+        positions2.resize( 50000 );
+        positions3.resize( positions.size() );
+        normals3.resize( positions.size() );
 
         projectedPositions.resize( positions2.size() );
         projectedNormals.resize( positions2.size() );
-
+        srand(time(NULL));
+        
+        // Ensemble de point aléatoire
         for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
             positions2[pIt] = Vec3(
                         -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX),
                         -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX),
                         -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX)
                         );
-            positions2[pIt].normalize();
-            positions2[pIt] = 0.6 * positions2[pIt];
         }
+
+        //  Ensemble de point bruité
+        for (unsigned int i = 0 ; i< positions.size();i++){
+            float random = -0.2 + 0.4 * (float)(rand())/(float)(RAND_MAX);
+            positions3[i] = positions[i] + random * normals[i];
+            normals3[i] = normals[i];
+        }
+
 
         for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
             Vec3 inputPoint, outputPoint, outputNormal;
             inputPoint = positions2[pIt];
 
             HPSS( inputPoint, outputPoint, outputNormal, positions, normals, kdtree, 0 );
-
-            projectedPositions.push_back( outputPoint );
+           
+            projectedPositions.push_back( outputPoint + Vec3( 1.0,0.0,0.0 ) )  ;
+        
             projectedNormals.push_back( outputNormal );
-
-
         }
-
-
-
-        // PROJECT USING MLS (HPSS and APSS):
-        // TODO
     }
-
-
 
     glutMainLoop ();
     return EXIT_SUCCESS;
