@@ -340,7 +340,7 @@ void project( Vec3 inputPoint, Vec3 & outputPoint, Vec3 planPoint, Vec3 planNorm
 
 void HPSS( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal, 
            std::vector<Vec3> const positions, std::vector<Vec3> const normals, 
-           BasicANNkdTree const & kdTree, int kernelType, unsigned int nbIterations = 50, unsigned int knn = 100 ){
+           BasicANNkdTree const & kdTree, int kernelType, unsigned int nbIterations = 10, unsigned int knn = 10 ){
     
 
     ANNidxArray id_nearest_neighbors = new ANNidx[ knn ];
