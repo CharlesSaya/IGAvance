@@ -38,10 +38,15 @@ std::vector< Vec3 > normals;
 std::vector< Vec3 > positions2;
 std::vector< Vec3 > normals2;
 
+std::vector< Vec3 > positions3;
+std::vector< Vec3 > normals3;
 
 std::vector< Vec3 > projectedPositions;
 std::vector< Vec3 > projectedNormals;
 
+std::vector<Vec3> dcVertices;
+std::vector<unsigned int> indexes;
+std::vector<Vec3> surfaceVertices;
 
 // -------------------------------------------
 // OpenGL/GLUT application code.
@@ -58,7 +63,9 @@ static int lastX=0, lastY=0, lastZoom=0;
 static bool fullScreen = false;
 
 
-
+template <typename T> int sign(T val) {
+    return (T(0) < val) - (val < T(0));
+}
 
 // ------------------------------------------------------------------------------------------------------------
 // i/o and some stuff
@@ -205,11 +212,18 @@ void init () {
 
 void drawTriangleMesh( std::vector< Vec3 > const & i_positions , std::vector< unsigned int > const & i_triangles ) {
     glBegin(GL_TRIANGLES);
-    for(unsigned int tIt = 0 ; tIt < i_triangles.size() / 3 ; ++tIt) {
-        Vec3 p0 = i_positions[3*tIt];
-        Vec3 p1 = i_positions[3*tIt+1];
-        Vec3 p2 = i_positions[3*tIt+2];
+    glDisable(GL_CULL_FACE);
+    for(unsigned int i = 0 ; i < i_triangles.size(); i += 3) {
+        Vec3 p0 = i_positions[i_triangles[i]];
+        Vec3 p1 = i_positions[i_triangles[i + 1]];
+        Vec3 p2 = i_positions[i_triangles[i + 2]];
         Vec3 n = Vec3::cross(p1-p0 , p2-p0);
+
+        //Offset optionnel
+        //p0[0] +=1;
+        //p1[0] +=1;
+        //p2[0] +=1;
+
         n.normalize();
         glNormal3f( n[0] , n[1] , n[2] );
         glVertex3f( p0[0] , p0[1] , p0[2] );
@@ -218,6 +232,7 @@ void drawTriangleMesh( std::vector< Vec3 > const & i_positions , std::vector< un
     }
     glEnd();
 }
+
 
 void drawPointSet( std::vector< Vec3 > const & i_positions , std::vector< Vec3 > const & i_normals ) {
     glBegin(GL_POINTS);
@@ -234,11 +249,19 @@ void draw () {
     glColor3f(0.8,0.8,1);
     drawPointSet(positions , normals);
 
-    // glColor3f(1.0,.0,.0);
-    // drawPointSet(positions3 , normals3);
+    glColor3f(0.,0.,1);
 
-        glColor3f(0.5,1.0,0.0);
-        drawPointSet(positions2 , normals);
+//    drawTriangleMesh( dcVertices, indexes );
+
+     glColor3f(1.0,.0,.0);
+     drawPointSet(positions3 , normals3);
+//
+//
+    glColor3f(0.,1.0,0.0);
+    drawPointSet(surfaceVertices , normals);
+
+//    glColor3f(1.0,.0,0.0);
+//    drawPointSet(positions3 , normals);
 
 }
 
@@ -338,63 +361,105 @@ void project( Vec3 inputPoint, Vec3 & outputPoint, Vec3 planPoint, Vec3 planNorm
 }
 
 
-void HPSS( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal, 
-           std::vector<Vec3> const positions, std::vector<Vec3> const normals, 
-           BasicANNkdTree const & kdTree, int kernelType, unsigned int nbIterations = 10, unsigned int knn = 10 ){
-    
+//void HPSS( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal,
+//           std::vector<Vec3> const positions, std::vector<Vec3> const normals,
+//           BasicANNkdTree const & kdTree, int kernelType= 0, unsigned int nbIterations = 10, unsigned int knn = 10 ){
+//
+//    ANNidxArray id_nearest_neighbors = new ANNidx[ knn ];
+//    ANNdistArray square_distances_to_neighbors = new ANNdist[ knn ];
+//
+//    // iterate to project input point on centroid plan
+//    while ( nbIterations > 0 ){
+//        float weitghSum = 0.0;
+//        float h = 1.0;
+//
+//        Vec3 avgPoint = Vec3( 0., 0., 0. );
+//        Vec3 avgNormal = Vec3( 0., 0., 0. );
+//
+//        // get k-nearest and iterate on them to calculate the centroid
+//        kdTree.knearest( inputPoint, knn, id_nearest_neighbors, square_distances_to_neighbors );
+//
+//        for( unsigned int i = 0; i < knn; i++ ){
+//
+//            Vec3 projectedPoint;
+//
+//            int index = id_nearest_neighbors[i];
+//            // project input point on each neighbor's plan
+//            project( inputPoint, projectedPoint, positions[index], normals[index] );
+//
+//            Vec3 diff = inputPoint - positions[index] ;
+//
+//            float weight;
+//            if ( kernelType == 0 )
+//                weight = exp( - (diff.length() * diff.length() ) / ( h * h ) ) ;
+//            else if( kernelType == 1 )
+//                weight = 1.0;
+//            else
+//                weight = 1.0;
+//
+//            avgPoint  += weight * projectedPoint;
+//            avgNormal += weight * normals[index];
+//            weitghSum += weight;
+//        }
+//
+//        outputPoint  = avgPoint / weitghSum ;
+//        outputNormal = avgNormal / weitghSum;
+//        outputNormal.normalize();
+//        Vec3 temp = Vec3( inputPoint );
+//
+//        // project input point on centroid's plan
+//        project( temp, inputPoint, outputPoint, outputNormal );
+//
+//        nbIterations--;
+//
+//    }
+//
+//    delete [] id_nearest_neighbors;
+//    delete [] square_distances_to_neighbors;
+//
+//}
 
-    ANNidxArray id_nearest_neighbors = new ANNidx[ knn ];
-    ANNdistArray square_distances_to_neighbors = new ANNdist[ knn ];
+Vec3 project_orth( const Vec3 & x, const Vec3 & c , const Vec3 & n ){
+    Vec3 cx = x-c;
+    return x - Vec3::dot(cx, n)*n;
+}
 
-    // iterate to project input point on centroid plan
-    while ( nbIterations > 0 ){
-        float weitghSum = 0.0;
-        float h = 1.0;
-    
-        Vec3 avgPoint = Vec3( 0., 0., 0. );
-        Vec3 avgNormal = Vec3( 0., 0., 0. );
-        
-        // get k-nearest and iterate on them to calculate the centroid
-        kdTree.knearest( inputPoint, knn, id_nearest_neighbors, square_distances_to_neighbors );
-        
-        for( unsigned int i = 0; i < knn; i++ ){
 
-            Vec3 projectedPoint;
+void HPSS(Vec3 input_point,
+          Vec3 &output_point, Vec3 &output_normal,
+          const std::vector<Vec3> &positions, const std::vector<Vec3> &normals,
+          const BasicANNkdTree &kd_tree,
+          unsigned int nb_iter = 10, uint knn = 10) {
 
-            int index = id_nearest_neighbors[i];
-            // project input point on each neighbor's plan
-            project( inputPoint, projectedPoint, positions[index], normals[index] );
-            
-            Vec3 diff = inputPoint - positions[index] ;
+    ANNidxArray id_nearest_neighbors = new ANNidx[knn];
+    ANNdistArray square_distances_to_neighbors = new ANNdist[knn];
+    Vec3 x_k = input_point, c, n;
 
-            float weight;
-            if ( kernelType == 0 )
-                weight = exp( - (diff.length() * diff.length() ) / ( h * h ) ) ;
-            else if( kernelType == 1 )
-                weight = 1.0;
-            else
-                weight = 1.0;
-
-            avgPoint  += weight * projectedPoint;
-            avgNormal += weight * normals[index];
-            weitghSum += weight;
+    for (unsigned int it = 0; it < nb_iter; it++) {
+        kd_tree.knearest(x_k, knn, id_nearest_neighbors, square_distances_to_neighbors);
+        double sqrradius = square_distances_to_neighbors[knn-1];
+        float total_w = 0.f;
+        c = Vec3(0.f, 0.f, 0.f);
+        n = Vec3(0.f, 0.f, 0.f);
+        for (unsigned int k = 0; k < knn; k++) {
+            int j = id_nearest_neighbors[k];
+            Vec3 p_tilde = project_orth(x_k, positions[j], normals[j]);
+            float w = std::exp(-(x_k - p_tilde).squareLength() / sqrradius);
+            total_w += w;
+            c += w * p_tilde;
+            n += w * normals[j];
         }
+        c /= total_w;
+        n.normalize();
 
-        outputPoint  = avgPoint / weitghSum ;
-        outputNormal = avgNormal / weitghSum;
-        outputNormal.normalize();
-        Vec3 temp = Vec3( inputPoint );
-
-        // project input point on centroid's plan
-        project( temp, inputPoint, outputPoint, outputNormal );
-
-        nbIterations--;
-
+        x_k = project_orth(x_k, c, n);
     }
 
-    delete [] id_nearest_neighbors;
-    delete [] square_distances_to_neighbors;
+    output_point = x_k;
+    output_normal = n;
 
+    delete[] id_nearest_neighbors;
+    delete[] square_distances_to_neighbors;
 }
 
 void AABB( Vec3 &bbMin, Vec3 &bbMax, std::vector<Vec3> const positions ){
@@ -424,113 +489,126 @@ void AABB( Vec3 &bbMin, Vec3 &bbMax, std::vector<Vec3> const positions ){
 
     
 void dualContouring( std::vector<Vec3> & test, std::vector<Vec3> & test2, std::vector<Vec3> const positions, std::vector<Vec3> const normals, BasicANNkdTree const & kdTree, int kernelType ){
-    float gridSize = 32.0;
+    float gridSize = 32;
     Vec3 bbMin = Vec3(FLT_MAX, FLT_MAX, FLT_MAX), bbMax = Vec3( -FLT_MAX, -FLT_MAX, -FLT_MAX);
     AABB( bbMin, bbMax, positions);
     Grid grid = Grid( gridSize, bbMin, bbMax ) ;
 
-    for ( unsigned int i = 0; i < grid.voxels.size() ; i++ ){
+
+    for ( unsigned int i = 0; i < grid.voxels.size() ; i++ ) {
         Voxel voxel = grid.voxels[i];
 
-
-
-        for (unsigned int c = 0; c < 8; c++){
+        for (unsigned int c = 0; c < 8; c++) {
             Vec3 projectedPoint, projectedNormal;
 
-            HPSS( voxel.vertices[c], projectedPoint, projectedNormal, positions, normals, kdTree, 0 );
-            voxel.evaluate( c, projectedPoint, projectedNormal );
-            test.push_back( voxel.vertices[c] ); 
-            test2.push_back(  voxel.vertices[c] );
-
+            HPSS(voxel.vertices[c], projectedPoint, projectedNormal, positions, normals, kdTree );
+            voxel.evaluate(c, projectedPoint, projectedNormal);
+            positions3.push_back( voxel.vertices[c] );
+            normals3.push_back( voxel.vertices[c] );
         }
     }
 
-}
-
-void APSS( Vec3 inputPoint, Vec3 & outputPoint, Vec3 & outputNormal, 
-           std::vector<Vec3> const positions, std::vector<Vec3> const normals, 
-           BasicANNkdTree const & kdTree, int kernelType, unsigned int nbIterations = 50, unsigned int knn = 100 ){
-
-   
-    ANNidxArray id_nearest_neighbors = new ANNidx[ knn ];
-    ANNdistArray square_distances_to_neighbors = new ANNdist[ knn ];
-    float h = 1.0;
-    while ( nbIterations > 0 ){
-
-        float u4Sum1 = 0.0, u4Sum4= 0.0;
-        
-        Vec3 u4Sum2 = Vec3(0.0, 0.0, 0.0), 
-             u4Sum3 = Vec3(0.0, 0.0, 0.0), 
-             u4Sum5 = Vec3(0.0, 0.0, 0.0), 
-             u4Sum6 = Vec3(0.0, 0.0, 0.0);
-
-        Vec3 u123Sum1 = Vec3(0.0, 0.0, 0.0), 
-             u123Sum2 = Vec3(0.0, 0.0, 0.0);
-
-        Vec3 u0Sum1 = Vec3(0.0, 0.0, 0.0);
-        float u0Sum2 = 0.0;
-
-        kdTree.knearest( inputPoint, knn, id_nearest_neighbors, square_distances_to_neighbors );
-        
-        for( unsigned int i = 0; i < knn; i++ ){
-            int index = id_nearest_neighbors[i] ;
-            Vec3 diff = inputPoint - positions[index] ;
-
-            float weight;
-            if ( kernelType == 0 )
-                weight = exp( - (diff.length() * diff.length() ) / ( h * h ) ) ;
-            else if( kernelType == 1 )
-                weight = 1.0;
-            else
-                weight = 1.0;
-
-            float normalizedWeight = weight / (float)knn;
-
-            u4Sum1 +=  weight *  Vec3::dot( positions[index], (normals[index] ) );
-            u4Sum2 +=  normalizedWeight * positions[index];
-            u4Sum3 +=  weight * normals[index];
-            u4Sum4 +=  weight *  Vec3::dot( positions[index], positions[index]);
-            u4Sum5 +=  normalizedWeight * positions[index];
-            u4Sum6 +=  weight * positions[index];
-
-            u123Sum1 += normalizedWeight * normals[index];
-            u123Sum2 += normalizedWeight * positions[index];
-
-            u0Sum1 += normalizedWeight * positions[index];
-            u0Sum2 += normalizedWeight * Vec3::dot( positions[index], positions[index]);
+    for  (Voxel voxel : grid.voxels) {
+        Vec3 min = voxel.vertices[0];
+        Vec3 max = voxel.vertices[6];
+        bool out = false;
+        for (int i = 0; i < 7; i++){
+            for (int j = 1; i < 8; j++) {
+                if (sign(voxel.values[i]) != sign(voxel.values[j])) {
+                    surfaceVertices.push_back(Vec3(max + min) / 2.0);
+                    out = true;
+                    break;
+                }
+            }
+            if (out)
+                break;
         }
-
-        //  calcul des coefficients
-        float u4 = 0.5 * ( u4Sum1 - ( Vec3::dot( u4Sum2, u4Sum3 ) ) ) / ( u4Sum4 - Vec3::dot( u4Sum5, u4Sum6 ) );
-        Vec3 u123 = u123Sum1 - ( 2.0 * u4 *  u123Sum2 );
-        float u0 = Vec3::dot( -1.0 * u123, u0Sum1 ) - ( u4 * u0Sum2 );
-        Vec3 normal; 
-
-        //  on projete sur le plan
-        if (u4 == 0){
-            normal = Vec3( u123 );
-            normal.normalize();
-
-            // project( temp, inputPoint, normal,normal );
-
-        //  On calcule le centre du cercle et son rayon et on calcule la projection de l'input point
-        }else{
-            Vec3 c = ( -1.0 * u123 ) / ( 2.0 * u4 );
-            float r = sqrt( c.length() * c.length() - u0/u4 ) ;
-
-            normal = u123 + 2.0*u4*inputPoint;
-            normal.normalize();
-            Vec3 pc = Vec3( inputPoint - c );
-            pc.normalize();
-            inputPoint = c + ( r * pc );
-
-        }
-
-        outputNormal = normal;
-       
-        nbIterations--;
     }
-    outputPoint = inputPoint;
+    std::cout << surfaceVertices.size() << std::endl;
+
+    for (Voxel voxel : grid.voxels ){
+        Vec3 min = voxel.vertices[0];
+        // X AXIS
+        if (min[1]>bbMin[1] && min[2]>bbMin[2]) {
+            if ((voxel.values[0]) != (voxel.values[1])){
+                Vec3 v1, v2, v3, v4;
+                Vec3 n1, n2, n3, n4;
+
+                v1 = surfaceVertices[voxel.id];
+                v2 = surfaceVertices[voxel.id  - gridSize];
+                v3 = surfaceVertices[voxel.id  - gridSize * gridSize - gridSize];
+                v4 = surfaceVertices[voxel.id  - gridSize * gridSize];
+
+//                HPSS(surfaceVertices[voxel.id], v1, n1, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - gridSize], v2, n2, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - gridSize * gridSize - gridSize], v3, n3, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - gridSize * gridSize], v4, n4, positions, normals, kdTree);
+
+                dcVertices.push_back(v1);
+                dcVertices.push_back(v2);
+                dcVertices.push_back(v3);
+                dcVertices.push_back(v4);
+
+                unsigned int count = dcVertices.size();
+                indexes.insert( indexes.end(), { count-4, count-3, count-2, count-4, count-2, count-1 });
+
+            }
+        }
+        // Y AXIS
+        if (min[0]>bbMin[0] && min[2]>bbMin[2]) {
+            if ((voxel.values[0]) != (voxel.values[3])){
+//                Vec3 v1, v2, v3, v4;
+//                Vec3 n1, n2, n3, n4;
+
+                Vec3 v1 = surfaceVertices[voxel.id];
+                Vec3 v2 = surfaceVertices[voxel.id - 1];
+                Vec3 v3 = surfaceVertices[voxel.id - gridSize * gridSize - 1];
+                Vec3 v4 = surfaceVertices[voxel.id - gridSize * gridSize];
+
+//                HPSS(surfaceVertices[voxel.id], v1, n1, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - 1], v2, n2, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - gridSize * gridSize - 1], v3, n3, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - gridSize * gridSize], v4, n4, positions, normals, kdTree);
+
+                dcVertices.push_back(v1);
+                dcVertices.push_back(v2);
+                dcVertices.push_back(v3);
+                dcVertices.push_back(v4);
+
+                unsigned int count = dcVertices.size();
+                indexes.insert( indexes.end(), { count-4, count-3, count-2, count-4, count-2, count-1 });
+
+            }
+        }
+        // Z AXIS
+        if (min[0]>bbMin[0] && min[1]>bbMin[1]) {
+            if ((voxel.values[0]) != (voxel.values[4])){
+//                Vec3 v1, v2, v3, v4;
+//                Vec3 n1, n2, n3, n4;
+//
+                Vec3 v1 = surfaceVertices[voxel.id];
+                Vec3 v2 = surfaceVertices[voxel.id - 1];
+                Vec3 v3 = surfaceVertices[voxel.id - gridSize -1];
+                Vec3 v4 = surfaceVertices[voxel.id - gridSize];
+
+//                HPSS(surfaceVertices[voxel.id], v1, n1, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - 1], v2, n2, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - gridSize - 1], v3, n3, positions, normals, kdTree);
+//                HPSS(surfaceVertices[voxel.id  - gridSize], v4, n4, positions, normals, kdTree);
+
+                dcVertices.push_back(v1);
+                dcVertices.push_back(v2);
+                dcVertices.push_back(v3);
+                dcVertices.push_back(v4);
+
+                unsigned int count = dcVertices.size();
+                indexes.insert( indexes.end(), { count-4, count-3, count-2, count-4, count-2, count-1 });
+
+            }
+        }
+
+    }
+    std::cout << "end"<< std::endl;
 }
 
 int main (int argc, char ** argv) {
@@ -562,6 +640,7 @@ int main (int argc, char ** argv) {
         // Create a second pointset that is artificial, and project it on pointset1 using MLS techniques:
 
         dualContouring(positions2, normals2, positions, normals, kdtree, 0);
+        save("tp.off", dcVertices, indexes);
     }
 
     glutMainLoop ();

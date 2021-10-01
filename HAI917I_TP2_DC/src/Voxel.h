@@ -14,7 +14,7 @@ private :
 public:
 	std::vector<Vec3> vertices;
 	float values[8];
-	float id;
+    unsigned int id;
 
 	Voxel(){}
 
@@ -22,9 +22,10 @@ public:
 		vertices = v;
 	}
 
-	void evaluate( int id, Vec3 const & projectedPoint , Vec3 const & projectedNormal ){
-		values[id] = Vec3::dot( ( vertices[id] - projectedPoint ), projectedNormal );
-	
+	void evaluate( int id, Vec3 & projectedPoint , Vec3 & projectedNormal ){
+        Vec3 temp = ( vertices[id] - projectedPoint );
+		values[id] = Vec3::dot( temp , projectedNormal );
+
 	}
 };
 

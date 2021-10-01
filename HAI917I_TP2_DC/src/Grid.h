@@ -32,7 +32,7 @@ public:
 
 	            	getCorners( corners, point, stepX, stepY, stepZ);
 	            	Voxel voxel = Voxel(corners);
-
+                    voxel.id = x + y * int(gridSize) + z * int(gridSize) * int(gridSize);
 	            	voxels.push_back( voxel ); 
 
 	            }
@@ -45,13 +45,13 @@ public:
 
 		corners.push_back( point );
 		corners.push_back( Vec3( point[0] + stepX, point[1] , point[2] ) );
-		corners.push_back( Vec3( point[0], point[1] + stepY, point[2] ) );
 		corners.push_back( Vec3( point[0] + stepX, point[1] + stepY, point[2] ) );
+		corners.push_back( Vec3( point[0] , point[1] + stepY, point[2] ) );
 
 		corners.push_back( Vec3( point[0] , point[1], point[2] + stepZ ) );
 		corners.push_back( Vec3( point[0] + stepX, point[1] , point[2] + stepZ ) );
-		corners.push_back( Vec3( point[0], point[1] + stepY, point[2] + stepZ ) );
 		corners.push_back( Vec3( point[0] + stepX, point[1] + stepY, point[2] + stepZ ) );
+		corners.push_back( Vec3( point[0], point[1] + stepY, point[2] + stepZ ) );
 
 	}
 
